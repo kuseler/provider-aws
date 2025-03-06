@@ -76,7 +76,6 @@ import (
 	"github.com/crossplane-contrib/provider-aws/pkg/controller/sns"
 	"github.com/crossplane-contrib/provider-aws/pkg/controller/sqs"
 	"github.com/crossplane-contrib/provider-aws/pkg/controller/transfer"
-	"github.com/crossplane-contrib/provider-aws/pkg/controller/wafv2"
 	"github.com/crossplane-contrib/provider-aws/pkg/utils/setup"
 )
 
@@ -141,6 +140,5 @@ func Setup(mgr ctrl.Manager, o controller.Options) error {
 		sns.Setup,
 		sqs.Setup,
 		transfer.Setup,
-		wafv2.Setup,
 	)
 }
