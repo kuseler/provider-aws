@@ -72,6 +72,9 @@ func isUpToDate(_ context.Context, cr *svcapitypes.FileSystem, obj *svcsdk.Descr
 		if pointer.Int64Value(cr.Spec.ForProvider.ProvisionedThroughputInMibps) != int64(aws.Float64Value(res.ProvisionedThroughputInMibps)) {
 			return false, "", nil
 		}
+		if *cr.Spec.ForProvider.ThroughputMode != *res.ThroughputMode {
+			return false, "", nil
+		}
 	}
 	return true, "", nil
 }
