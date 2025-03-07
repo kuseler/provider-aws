@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 
+	"k8s.io/utils/ptr"
+
 	"github.com/aws/aws-sdk-go/aws/awserr"
 
 	"github.com/aws/aws-sdk-go/aws"
@@ -113,7 +115,7 @@ func (e *custom) isUpToDate(_ context.Context, cr *svcapitypes.FileSystem, obj *
 		if pointer.Int64Value(cr.Spec.ForProvider.ProvisionedThroughputInMibps) != int64(aws.Float64Value(res.ProvisionedThroughputInMibps)) {
 			return false, "", nil
 		}
-		if *cr.Spec.ForProvider.ThroughputMode != *res.ThroughputMode {
+		if !ptr.Equal(cr.Spec.ForProvider.ThroughputMode, res.ThroughputMode) {
 			return false, "", nil
 		}
 
@@ -154,23 +156,20 @@ func preUpdate(_ context.Context, cr *svcapitypes.FileSystem, obj *svcsdk.Update
 	if pointer.Int64Value(cr.Spec.ForProvider.ProvisionedThroughputInMibps) != int64(aws.Float64Value(*&obj.ProvisionedThroughputInMibps)) {
 		obj.ProvisionedThroughputInMibps = aws.Float64(float64(pointer.Int64Value(cr.Spec.ForProvider.ProvisionedThroughputInMibps)))
 	}
-	if *cr.Spec.ForProvider.ThroughputMode != *obj.ThroughputMode {
-		*obj.ThroughputMode = *cr.Spec.ForProvider.ThroughputMode
-	}
 	return nil
 }
 
 func (e *custom) postUpdate(ctx context.Context, cr *svcapitypes.FileSystem, obj *svcsdk.UpdateFileSystemOutput, upd managed.ExternalUpdate, err error) (managed.ExternalUpdate, error) {
-	if err != nil {
+	/*if err != nil {
 		return managed.ExternalUpdate{}, err
-	}
+	}*/
 
 	if e.cache.backupPolicy != *cr.Spec.ForProvider.Backup {
 		var policy *string
-		if e.cache.backupPolicy == false {
-			policy = aws.String("DISABLED")
-		} else {
+		if pointer.BoolValue(cr.Spec.ForProvider.Backup) {
 			policy = aws.String("ENABLED")
+		} else {
+			policy = aws.String("DISABLED")
 		}
 
 		_, err := e.client.PutBackupPolicyWithContext(ctx,
