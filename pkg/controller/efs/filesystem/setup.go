@@ -171,7 +171,9 @@ func (e *custom) postUpdate(ctx context.Context, cr *svcapitypes.FileSystem, obj
 		} else {
 			policy = aws.String("DISABLED")
 		}
-
+		if pointer.StringValue(obj.FileSystemId) == "" {
+			obj.FileSystemId = pointer.ToOrNilIfZeroValue(meta.GetExternalName(cr))
+		}
 		_, err := e.client.PutBackupPolicyWithContext(ctx,
 			&svcsdk.PutBackupPolicyInput{
 				FileSystemId: obj.FileSystemId,
