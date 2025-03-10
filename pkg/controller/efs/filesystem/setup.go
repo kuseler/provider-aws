@@ -38,8 +38,7 @@ func SetupFileSystem(mgr ctrl.Manager, o controller.Options) error {
 			e.preCreate = preCreate
 			e.postCreate = postCreate
 			e.preObserve = preObserve
-			e.preUpdate = preUpdate
-			e.postUpdate = c.postUpdate
+			e.preUpdate = c.preUpdate
 			e.preDelete = preDelete
 			e.postObserve = postObserve
 		},
@@ -118,7 +117,9 @@ func (e *custom) isUpToDate(_ context.Context, cr *svcapitypes.FileSystem, obj *
 		if !ptr.Equal(cr.Spec.ForProvider.ThroughputMode, res.ThroughputMode) {
 			return false, "", nil
 		}
-
+		// since Backup is not a direct part of the FileSystem, but an
+		// externally managed "BackupPolicy", changing only the backup policy will result in an
+		// error that the resource is not changed.
 		err := e.cacheBackupPolicyHelper(res.FileSystemId)
 		if err != nil {
 			return false, "", err
@@ -150,20 +151,14 @@ func postObserve(_ context.Context, cr *svcapitypes.FileSystem, obj *svcsdk.Desc
 	return obs, nil
 }
 
-func preUpdate(_ context.Context, cr *svcapitypes.FileSystem, obj *svcsdk.UpdateFileSystemInput) error {
+func (e *custom) preUpdate(ctx context.Context, cr *svcapitypes.FileSystem, obj *svcsdk.UpdateFileSystemInput) error {
 	obj.FileSystemId = pointer.ToOrNilIfZeroValue(meta.GetExternalName(cr))
 	// Type of this field is *float64 but in practice, only integer values are allowed.
-	if pointer.Int64Value(cr.Spec.ForProvider.ProvisionedThroughputInMibps) != int64(aws.Float64Value(*&obj.ProvisionedThroughputInMibps)) {
+	if cr.Spec.ForProvider.ProvisionedThroughputInMibps != nil {
 		obj.ProvisionedThroughputInMibps = aws.Float64(float64(pointer.Int64Value(cr.Spec.ForProvider.ProvisionedThroughputInMibps)))
 	}
-	return nil
-}
 
-func (e *custom) postUpdate(ctx context.Context, cr *svcapitypes.FileSystem, obj *svcsdk.UpdateFileSystemOutput, upd managed.ExternalUpdate, err error) (managed.ExternalUpdate, error) {
-	/*if err != nil {
-		return managed.ExternalUpdate{}, err
-	}*/
-
+	//update BackupPolicy
 	if e.cache.backupPolicy != *cr.Spec.ForProvider.Backup {
 		var policy *string
 		if pointer.BoolValue(cr.Spec.ForProvider.Backup) {
@@ -171,6 +166,7 @@ func (e *custom) postUpdate(ctx context.Context, cr *svcapitypes.FileSystem, obj
 		} else {
 			policy = aws.String("DISABLED")
 		}
+
 		if pointer.StringValue(obj.FileSystemId) == "" {
 			obj.FileSystemId = pointer.ToOrNilIfZeroValue(meta.GetExternalName(cr))
 		}
@@ -179,10 +175,15 @@ func (e *custom) postUpdate(ctx context.Context, cr *svcapitypes.FileSystem, obj
 				FileSystemId: obj.FileSystemId,
 				BackupPolicy: &svcsdk.BackupPolicy{Status: policy}})
 		if err != nil {
-			return managed.ExternalUpdate{}, err
+			return err
 		}
 	}
-	return managed.ExternalUpdate{}, nil
+
+	//if ptr.Equal(cr.Spec.ForProvider.ThroughputMode, obj.ThroughputMode) {
+	//	obj.ThroughputMode = nil
+	//}
+
+	return nil
 }
 
 func preDelete(_ context.Context, cr *svcapitypes.FileSystem, obj *svcsdk.DeleteFileSystemInput) (bool, error) {
