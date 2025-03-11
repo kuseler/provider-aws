@@ -3,7 +3,6 @@ package filesystem
 import (
 	"context"
 	"errors"
-
 	"k8s.io/utils/ptr"
 
 	"github.com/aws/aws-sdk-go/aws/awserr"
@@ -117,8 +116,9 @@ func (e *custom) isUpToDate(_ context.Context, cr *svcapitypes.FileSystem, obj *
 		if !ptr.Equal(cr.Spec.ForProvider.ThroughputMode, res.ThroughputMode) {
 			return false, "", nil
 		}
-		// since Backup is not a direct part of the FileSystem, but an
-		// externally managed "BackupPolicy", changing only the backup policy will result in an
+
+		// Backup is not a direct part of the FileSystem, but an externally managed "BackupPolicy",
+		// so changing only the backup policy will result in an
 		// error that the resource is not changed.
 		err := e.cacheBackupPolicyHelper(res.FileSystemId)
 		if err != nil {
