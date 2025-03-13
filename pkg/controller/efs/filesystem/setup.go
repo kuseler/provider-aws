@@ -121,7 +121,7 @@ func (e *custom) updateBackupPolicy(ctx context.Context, cr *svcapitypes.FileSys
 			return errors.Wrap(err, "failed to cache backup policy")
 		}
 
-		if e.cache.backupPolicy != *cr.Spec.ForProvider.Backup {
+		if e.cache.backupPolicy != pointer.BoolValue(cr.Spec.ForProvider.Backup) {
 			var policy string
 			if pointer.BoolValue(cr.Spec.ForProvider.Backup) {
 				policy = "ENABLED"
