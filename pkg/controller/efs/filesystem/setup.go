@@ -38,7 +38,7 @@ func SetupFileSystem(mgr ctrl.Manager, o controller.Options) error {
 			e.preObserve = preObserve
 			e.preUpdate = c.preUpdate
 			e.preDelete = preDelete
-			e.postObserve = postObserve
+			e.postObserve = c.postObserve
 		},
 	}
 
@@ -88,8 +88,8 @@ func (e *custom) cacheBackupPolicyHelper(filesystemId *string) error {
 	// default is no backup
 	policy, err := e.client.DescribeBackupPolicy(&svcsdk.DescribeBackupPolicyInput{FileSystemId: filesystemId})
 	if err != nil {
-		e.cache.backupPolicy = backupPolicyIsNotFound(err)
-		return resource.Ignore(IsNotFound, err)
+		e.cache.backupPolicy = !backupPolicyIsNotFound(err)
+		return resource.Ignore(backupPolicyIsNotFound, err)
 	}
 	policyStatus := aws.StringValue(policy.BackupPolicy.Status)
 	switch policyStatus {
@@ -110,15 +110,40 @@ func (e *custom) isUpToDate(_ context.Context, cr *svcapitypes.FileSystem, obj *
 			return false, "", nil
 		}
 
-		err := e.cacheBackupPolicyHelper(res.FileSystemId)
-		if err != nil {
-			return false, "", errors.Wrap(err, "failed to cache backup policy")
-		}
-		if pointer.BoolValue(cr.Spec.ForProvider.Backup) != e.cache.backupPolicy {
-			return false, "", nil
-		}
 	}
 	return true, "", nil
+}
+
+func (e *custom) updateBackupPolicy(ctx context.Context, cr *svcapitypes.FileSystem, obj *svcsdk.DescribeFileSystemsOutput) error {
+	for _, res := range obj.FileSystems {
+		err := e.cacheBackupPolicyHelper(res.FileSystemId)
+		if err != nil {
+			return errors.Wrap(err, "failed to cache backup policy")
+		}
+
+		if e.cache.backupPolicy != *cr.Spec.ForProvider.Backup {
+			var policy string
+			if pointer.BoolValue(cr.Spec.ForProvider.Backup) {
+				policy = "ENABLED"
+			} else {
+				policy = "DISABLED"
+			}
+
+			if pointer.StringValue(res.FileSystemId) == "" {
+				res.FileSystemId = pointer.ToOrNilIfZeroValue(meta.GetExternalName(cr))
+			}
+			_, err := e.client.PutBackupPolicyWithContext(ctx,
+				&svcsdk.PutBackupPolicyInput{
+					FileSystemId: res.FileSystemId,
+					BackupPolicy: &svcsdk.BackupPolicy{Status: &policy},
+				})
+
+			if err != nil {
+				return errors.Wrap(err, "failed to put backup policy")
+			}
+		}
+	}
+	return nil
 }
 
 func preObserve(_ context.Context, cr *svcapitypes.FileSystem, obj *svcsdk.DescribeFileSystemsInput) error {
@@ -128,7 +153,7 @@ func preObserve(_ context.Context, cr *svcapitypes.FileSystem, obj *svcsdk.Descr
 	return nil
 }
 
-func postObserve(_ context.Context, cr *svcapitypes.FileSystem, obj *svcsdk.DescribeFileSystemsOutput, obs managed.ExternalObservation, err error) (managed.ExternalObservation, error) {
+func (e *custom) postObserve(ctx context.Context, cr *svcapitypes.FileSystem, obj *svcsdk.DescribeFileSystemsOutput, obs managed.ExternalObservation, err error) (managed.ExternalObservation, error) {
 	if err != nil {
 		return managed.ExternalObservation{}, err
 	}
@@ -137,6 +162,10 @@ func postObserve(_ context.Context, cr *svcapitypes.FileSystem, obj *svcsdk.Desc
 	}
 	obs.ConnectionDetails = managed.ConnectionDetails{
 		svcapitypes.ResourceCredentialsSecretIDKey: []byte(meta.GetExternalName(cr)),
+	}
+	updateBackupPolicyErr := e.updateBackupPolicy(ctx, cr, obj)
+	if updateBackupPolicyErr != nil {
+		return managed.ExternalObservation{}, updateBackupPolicyErr
 	}
 	return obs, nil
 }
@@ -148,7 +177,7 @@ func (e *custom) preUpdate(ctx context.Context, cr *svcapitypes.FileSystem, obj 
 		obj.ProvisionedThroughputInMibps = aws.Float64(float64(pointer.Int64Value(cr.Spec.ForProvider.ProvisionedThroughputInMibps)))
 	}
 
-	if e.cache.backupPolicy != *cr.Spec.ForProvider.Backup {
+	if pointer.BoolValue(cr.Spec.ForProvider.Backup) != e.cache.backupPolicy {
 		var policy string
 		if pointer.BoolValue(cr.Spec.ForProvider.Backup) {
 			policy = "ENABLED"
@@ -207,5 +236,5 @@ func backupPolicyIsNotFound(err error) bool {
 	// default BackupPolicy is false, so if none is found, it's false
 	var awsErr awserr.Error
 	ok := errors.As(err, &awsErr)
-	return !(ok && awsErr.Code() == "PolicyNotFound")
+	return ok && awsErr.Code() == "PolicyNotFound"
 }
